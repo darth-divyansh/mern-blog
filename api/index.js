@@ -18,6 +18,15 @@ app.use(cors({credentials:true,origin:'http://localhost:3000'}));
 app.use(express.json());
 app.use(cookieParser());
 app.use('/uploads', express.static(__dirname + '/uploads'));
+const path = require('path');
+
+
+// console.log(__dirname);
+
+//Use the Client App
+// app.use(express.static(path.join(__dirname , '/client/build')));
+
+
 
 
 
