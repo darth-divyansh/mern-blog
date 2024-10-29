@@ -23,7 +23,7 @@ cloudinary.config({
 
 app.use(cors({
   credentials: true,
-  origin: ['http://localhost:3000','https://ekanshsblog.onrender.com']
+  origin: ['https://strong-meerkat-64a732.netlify.app/','http://localhost:3000','https://ekanshsblog.onrender.com']
 }));
 app.use(express.json());
 app.use(cookieParser());
