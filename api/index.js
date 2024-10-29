@@ -21,7 +21,14 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+<<<<<<< HEAD
 app.use(cors({ credentials: true, origin: 'http://localhost:3000' }));
+=======
+app.use(cors({
+  credentials: true,
+  origin: ['http://localhost:3000', 'https://mernblog-ecru.vercel.app']
+}));
+>>>>>>> 53ff4b9a323b507a93aafc1e34c7405a2defd046
 app.use(express.json());
 app.use(cookieParser());
 
