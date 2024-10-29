@@ -1,25 +1,29 @@
-
 const express = require('express');
 const cors = require('cors');
 const mongoose = require("mongoose");
 const User = require('./models/User');
 const Post = require('./models/Post');
 const bcrypt = require('bcryptjs');
-const app = express();
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const multer = require('multer');
-const uploadMiddleware = multer({ dest: 'uploads/' });
-const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
+const streamifier = require('streamifier');
 require('dotenv').config();
 
+const app = express();
 const salt = bcrypt.genSaltSync(10);
 const secret = process.env.JWT_SECRET || 'defaultSecret';
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 app.use(cors({ credentials: true, origin: 'http://localhost:3000' }));
 app.use(express.json());
 app.use(cookieParser());
-app.use('/uploads', express.static(__dirname + '/uploads'));
 
 mongoose.set('strictQuery', false);
 mongoose.connect(process.env.MONGODB_URI, {
@@ -27,6 +31,9 @@ mongoose.connect(process.env.MONGODB_URI, {
   // useUnifiedTopology: true,
 }).then(() => console.log("Connected to MongoDB"))
   .catch((error) => console.error("MongoDB connection error:", error));
+
+// Multer setup for handling file uploads in memory
+const upload = multer({ storage: multer.memoryStorage() });
 
 app.post('/register', async (req, res) => {
   const { username, password } = req.body;
@@ -37,7 +44,7 @@ app.post('/register', async (req, res) => {
     });
     res.json(userDoc);
   } catch (e) {
-    console.log(e);
+    console.error("Registration error:", e);
     res.status(400).json(e);
   }
 });
@@ -52,7 +59,6 @@ app.post('/login', async (req, res) => {
   
   const passOk = bcrypt.compareSync(password, userDoc.password);
   if (passOk) {
-    // Logged in
     jwt.sign({ username, id: userDoc._id }, secret, {}, (err, token) => {
       if (err) throw err;
       res.cookie('token', token, { httpOnly: true }).json({
@@ -61,7 +67,7 @@ app.post('/login', async (req, res) => {
       });
     });
   } else {
-    res.status(400).json('wrong credentials');
+    res.status(400).json('Wrong credentials');
   }
 });
 
@@ -81,67 +87,96 @@ app.post('/logout', (req, res) => {
   res.cookie('token', '', { httpOnly: true }).json('ok');
 });
 
-app.post('/post', uploadMiddleware.single('file'), async (req, res) => {
-  const { originalname, path } = req.file;
-  const parts = originalname.split('.');
-  const ext = parts[parts.length - 1];
-  const newPath = path + '.' + ext;
-  fs.renameSync(path, newPath);
-
+// Create Post with Cloudinary File Upload
+app.post('/post', upload.single('file'), async (req, res) => {
+  const { file } = req;
   const { token } = req.cookies;
+
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
   }
 
-  jwt.verify(token, secret, {}, async (err, info) => {
-    if (err) return res.status(401).json({ error: 'Invalid token' });
-    
+  try {
+    // Verify JWT
+    const info = jwt.verify(token, secret);
+
+    let coverUrl = null;
+    if (file) {
+      // Upload file to Cloudinary using buffer
+      const result = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream({ resource_type: "auto" }, (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        });
+        streamifier.createReadStream(file.buffer).pipe(uploadStream);
+      });
+      coverUrl = result.secure_url;
+    }
+
+    // Create post in MongoDB with Cloudinary URL
     const { title, summary, content } = req.body;
     const postDoc = await Post.create({
       title,
       summary,
       content,
-      cover: newPath,
+      cover: coverUrl,
       author: info.id,
     });
     res.json(postDoc);
-  });
+
+  } catch (err) {
+    console.error("Error creating post:", err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-app.put('/post', uploadMiddleware.single('file'), async (req, res) => {
-  let newPath = null;
-  if (req.file) {
-    const { originalname, path } = req.file;
-    const parts = originalname.split('.');
-    const ext = parts[parts.length - 1];
-    newPath = path + '.' + ext;
-    fs.renameSync(path, newPath);
-  }
-
+// Update Post with Cloudinary File Upload
+app.put('/post', upload.single('file'), async (req, res) => {
+  const { file } = req;
   const { token } = req.cookies;
+
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
   }
 
-  jwt.verify(token, secret, {}, async (err, info) => {
-    if (err) return res.status(401).json({ error: 'Invalid token' });
+  try {
+    // Verify JWT
+    const info = jwt.verify(token, secret);
 
+    // Check if the user is the author
     const { id, title, summary, content } = req.body;
     const postDoc = await Post.findById(id);
-    const isAuthor = JSON.stringify(postDoc.author) === JSON.stringify(info.id);
-    if (!isAuthor) {
+    if (String(postDoc.author) !== String(info.id)) {
       return res.status(403).json('You are not the author');
     }
 
+    // Upload new file to Cloudinary if present
+    let coverUrl = postDoc.cover;
+    if (file) {
+      const result = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream({ resource_type: "auto" }, (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        });
+        streamifier.createReadStream(file.buffer).pipe(uploadStream);
+      });
+      coverUrl = result.secure_url;
+    }
+
+    // Update post
     await postDoc.updateOne({
       title,
       summary,
       content,
-      cover: newPath ? newPath : postDoc.cover,
+      cover: coverUrl,
     });
 
     res.json(postDoc);
-  });
+
+  } catch (err) {
+    console.error("Error updating post:", err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.get('/post', async (req, res) => {
