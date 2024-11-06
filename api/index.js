@@ -23,7 +23,7 @@ cloudinary.config({
 
 app.use(cors({
   credentials: true,
-  origin: ['https://strong-meerkat-64a732.netlify.app',
+  origin: ['https://divyansh-bloghub.netlify.app',
             'http://localhost:3000'
 ],
 }));
