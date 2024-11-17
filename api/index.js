@@ -23,7 +23,7 @@ cloudinary.config({
 
 app.use(cors({
   credentials: true,
-  origin: ['https://strong-meerkat-64a732.netlify.app',
+  origin: ['https://divyansh-bloghub.netlify.app',
             'http://localhost:3000'
 ],
 }));
@@ -62,18 +62,23 @@ app.post('/login', async (req, res) => {
     return res.status(400).json('User not found');
   }
   
-  const passOk = bcrypt.compareSync(password, userDoc.password);
-  if (passOk) {
+
+const passOk = bcrypt.compareSync(password, userDoc.password);
+if (passOk) {
     jwt.sign({ username, id: userDoc._id }, secret, {}, (err, token) => {
       if (err) throw err;
-      res.cookie('token', token, { httpOnly: true }).json({
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: true,       // Requires HTTPS
+        sameSite: 'None',   // Allows cross-origin cookies
+      }).json({
         id: userDoc._id,
         username,
       });
     });
-  } else {
+} else {
     res.status(400).json('Wrong credentials');
-  }
+}
 });
 
 app.get('/profile', (req, res) => {
